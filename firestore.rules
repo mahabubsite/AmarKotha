@@ -1,0 +1,81 @@
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // --- Helpers ---
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      // Replace with your specific admin email check or custom claim
+      return isAuthenticated() && 
+             request.auth.token.email.lower() == 'mdmahbubsite@gmail.com'.lower();
+    }
+
+    // --- Rules ---
+
+    // User Profiles: Publicly readable, owner/admin writable
+    match /users/{userId} {
+      allow read: if true; 
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Username mapping: Publicly readable to check availability
+    match /usernames/{username} {
+      allow read: if true;
+      allow create: if isAuthenticated(); // Created during signup
+      allow update, delete: if isAdmin(); // Only admin can manually manage these for now
+    }
+
+    // Posts
+    match /posts/{postId} {
+      allow read: if true;
+      
+      // Any authenticated user can create a post
+      allow create: if isAuthenticated();
+      
+      // Only Admin or Author can delete
+      allow delete: if isAdmin() || (resource.data.authorId == request.auth.uid);
+      
+      // Update Logic:
+      // 1. Admin can update anything.
+      // 2. Author can update anything (edit post).
+      // 3. Others can ONLY update interactions (votes, comments, shares) 
+      //    IF they do NOT change critical content (title, description, author, type).
+      allow update: if isAuthenticated() && (
+        isAdmin() || 
+        resource.data.authorId == request.auth.uid || 
+        (
+          request.resource.data.title == resource.data.title &&
+          request.resource.data.description == resource.data.description &&
+          request.resource.data.type == resource.data.type &&
+          request.resource.data.authorId == resource.data.authorId &&
+          request.resource.data.category == resource.data.category
+        )
+      );
+    }
+
+    // Notifications: Strictly private to the receiver
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated(); // System or triggers might create these
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()); // Mark as read
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Settings: Public read, Admin write
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
