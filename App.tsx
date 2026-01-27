@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { 
   collection, 
@@ -27,8 +28,9 @@ import UserProfile from './components/UserProfile';
 import MobileSidebar from './components/MobileSidebar';
 import AdminDashboard from './components/AdminDashboard';
 import AuthPage from './components/AuthPage';
+import SinglePostView from './components/SinglePostView';
 import { Post, User, PostType, Notification, SiteSettings } from './types';
-import { Loader2, Search, AlertCircle, Inbox, Plus, X, LogIn } from 'lucide-react';
+import { Loader2, Search, AlertCircle, Inbox, Plus, X } from 'lucide-react';
 
 const ADMIN_EMAIL = 'mdmahbubsite@gmail.com';
 
@@ -44,6 +46,9 @@ const DEFAULT_SETTINGS: SiteSettings = {
 };
 
 const App: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -52,8 +57,6 @@ const App: React.FC = () => {
   const [viewedUser, setViewedUser] = useState<User | null>(null);
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS);
   
-  const [view, setView] = useState<'feed' | 'profile' | 'admin'>('feed');
-  const [profileId, setProfileId] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -113,7 +116,7 @@ const App: React.FC = () => {
     try {
       await signOut(auth);
       setCurrentUser(null);
-      setView('feed');
+      navigate('/');
     } catch (err) {
       console.error("Failed to sign out:", err);
     }
@@ -137,6 +140,7 @@ const App: React.FC = () => {
               avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${fbUser.uid}`, 
               followers: 0, 
               following: 0,
+              followingIds: [],
               joinedDate: Date.now()
             };
             setCurrentUser(initialData);
@@ -198,24 +202,114 @@ const App: React.FC = () => {
     return unsubscribe;
   }, []);
 
-  // Fetch Viewed User
-  useEffect(() => {
-    if (profileId) {
-      if (profileId === currentUser?.id) {
-        setViewedUser(currentUser);
-      } else if (users[profileId]) {
-        setViewedUser(users[profileId]);
-      } else {
-        getDoc(doc(db, "users", profileId)).then(snap => {
-          if (snap.exists()) {
-            const u = { id: profileId, ...snap.data() } as User;
-            setViewedUser(u);
-            setUsers(prev => ({ ...prev, [profileId]: u }));
-          }
-        });
-      }
+  // Helper to send notifications
+  const sendNotification = async (targetUserId: string, type: 'success' | 'info' | 'alert', message: string) => {
+    if (!currentUser || targetUserId === currentUser.id) return; // Don't notify self
+    try {
+      await addDoc(collection(db, "notifications"), {
+        userId: targetUserId,
+        type,
+        message,
+        read: false,
+        timestamp: Date.now()
+      });
+    } catch (e) {
+      console.error("Failed to send notification:", e);
     }
-  }, [profileId, currentUser?.id, users]);
+  };
+
+  const handleMarkRead = async (notificationId: string) => {
+    if (!currentUser) return;
+    try {
+      await updateDoc(doc(db, "notifications", notificationId), { read: true });
+    } catch (e) {
+      console.error("Failed to mark notification as read:", e);
+    }
+  };
+
+  const handleFollowToggle = async (targetUserId: string) => {
+    if (!currentUser) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    if (targetUserId === currentUser.id) return;
+
+    const isFollowing = (currentUser.followingIds || []).includes(targetUserId);
+    const currentUserRef = doc(db, "users", currentUser.id);
+    const targetUserRef = doc(db, "users", targetUserId);
+
+    try {
+      if (isFollowing) {
+        // Unfollow
+        await updateDoc(currentUserRef, {
+          following: increment(-1),
+          followingIds: arrayRemove(targetUserId)
+        });
+        await updateDoc(targetUserRef, {
+          followers: increment(-1)
+        });
+      } else {
+        // Follow
+        await updateDoc(currentUserRef, {
+          following: increment(1),
+          followingIds: arrayUnion(targetUserId)
+        });
+        await updateDoc(targetUserRef, {
+          followers: increment(1)
+        });
+        // Send Notification
+        sendNotification(targetUserId, 'success', `${currentUser.name} is now following you.`);
+      }
+    } catch (err) {
+      console.error("Failed to toggle follow status:", err);
+    }
+  };
+
+  // Fetch Viewed User for Profile Route
+  const ProfileRouteWrapper = () => {
+    const { userId } = React.useMemo(() => {
+        const pathParts = location.pathname.split('/');
+        return { userId: pathParts[2] };
+    }, [location]);
+
+    useEffect(() => {
+        if (userId) {
+            if (userId === currentUser?.id) {
+                setViewedUser(currentUser);
+            } else if (users[userId]) {
+                setViewedUser(users[userId]);
+            } else {
+                getDoc(doc(db, "users", userId)).then(snap => {
+                    if (snap.exists()) {
+                        const u = { id: userId, ...snap.data() } as User;
+                        setViewedUser(u);
+                        setUsers(prev => ({ ...prev, [userId]: u }));
+                    }
+                });
+            }
+        }
+    }, [userId, currentUser?.id, users]);
+
+    if (!viewedUser) return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-emerald-600" /></div>;
+
+    const isFollowing = (currentUser?.followingIds || []).includes(viewedUser.id);
+
+    return (
+        <UserProfile 
+          user={viewedUser} 
+          currentUser={currentUser} 
+          isFollowing={isFollowing} 
+          onFollowToggle={handleFollowToggle} 
+          posts={posts} 
+          onBack={() => navigate('/')} 
+          onPostInteract={handleInteract} 
+          onUserClick={(id) => navigate(`/profile/${id}`)} 
+          onUpdateProfile={handleUpdateProfile} 
+          onEditPost={handleEditPost}
+          onDeletePost={handleDeletePost}
+        />
+    );
+  };
 
   const handleUpdateProfile = async (updatedUser: User) => {
     if (!currentUser) return;
@@ -248,7 +342,6 @@ const App: React.FC = () => {
   };
 
   const handleDeletePost = async (postId: string) => {
-    // Permission check handled in Firebase Rules and UI, this is double check
     try {
       await deleteDoc(doc(db, "posts", postId));
     } catch (err) {
@@ -289,6 +382,9 @@ const App: React.FC = () => {
           const updates: any = { upvotes: increment(1), upvotesBy: arrayUnion(currentUser.id) };
           if (hasDownvoted) { updates.downvotes = increment(-1); updates.downvotesBy = arrayRemove(currentUser.id); }
           await updateDoc(postRef, updates);
+          
+          // Send Notification on Upvote
+          sendNotification(post.authorId, 'success', `${currentUser.name} supported your voice: "${post.title.substring(0, 20)}..."`);
         }
       } else {
         if (hasDownvoted) {
@@ -313,10 +409,18 @@ const App: React.FC = () => {
         id: Math.random().toString(36).substr(2, 9),
         author: currentUser.name,
         authorId: currentUser.id,
+        authorAvatar: currentUser.avatar, // Save the current avatar
         content: text,
         timestamp: Date.now()
       };
       await updateDoc(postRef, { comments: arrayUnion(newComment) });
+
+      // Send Notification on Comment
+      const post = posts.find(p => p.id === postId);
+      if (post) {
+        sendNotification(post.authorId, 'info', `${currentUser.name} commented on your post: "${post.title.substring(0, 20)}..."`);
+      }
+
     } catch (err) { console.error("Comment failed:", err); }
   };
 
@@ -352,24 +456,82 @@ const App: React.FC = () => {
     );
   }
 
+  const Feed = () => (
+    <>
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 p-1 mb-4 flex gap-1 overflow-x-auto no-scrollbar">
+        {[ 'ALL', 'Issue', 'Petition', 'Poll' ].map(type => (
+          <button key={type} onClick={() => setFilterType(type as any)} className={`flex-1 py-2 px-4 text-[10px] font-black uppercase rounded-lg transition-all whitespace-nowrap ${filterType === type ? 'bg-emerald-600 text-white' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+            {type}
+          </button>
+        ))}
+      </div>
+
+      {searchTerm && (
+        <div className="bg-emerald-50 dark:bg-emerald-950/20 px-4 py-2 rounded-xl mb-4 flex items-center justify-between border border-emerald-100 dark:border-emerald-900/30">
+          <div className="flex items-center gap-2">
+            <Search className="w-4 h-4 text-emerald-600" />
+            <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">Searching for: <span className="font-black">"{searchTerm}"</span></span>
+          </div>
+          <button onClick={() => setSearchTerm('')} className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 rounded-full text-emerald-600 transition">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      <div className="hidden lg:block">
+        <CreatePost 
+          onPostCreate={() => {}} 
+          currentUser={currentUser || { name: 'Guest', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=guest', id: 'guest' }} 
+          onLoginRequired={() => setIsAuthModalOpen(true)}
+          settings={settings}
+        />
+      </div>
+
+      <div className="space-y-1">
+        {filteredPosts.length > 0 ? (
+          filteredPosts.map(post => (
+            <PostCard 
+              key={post.id} 
+              post={post} 
+              currentUser={currentUser || { id: 'guest', name: 'Guest', avatar: '', followers: 0, following: 0, joinedDate: Date.now() }}
+              onInteract={handleInteract} 
+              onAddComment={handleAddComment} 
+              onUserClick={(id) => navigate(`/profile/${id}`)} 
+              onTagClick={(tag) => setSearchTerm(tag)}
+              authorData={users[post.authorId]}
+              onEdit={handleEditPost}
+              onDelete={handleDeletePost}
+            />
+          ))
+        ) : (
+          <div className="bg-white dark:bg-gray-900 rounded-2xl p-12 text-center border border-dashed border-gray-200 dark:border-gray-800">
+            <Inbox className="w-12 h-12 text-gray-300 dark:text-gray-700 mx-auto mb-4" />
+            <p className="text-sm font-bold text-gray-400 dark:text-gray-600 uppercase tracking-widest">No contributions found.</p>
+          </div>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-950 font-sans pb-24 lg:pb-0 transition-colors duration-300">
-      {view !== 'admin' && (
+      
+      {location.pathname !== '/admin' && (
         <Header 
           onProfileClick={() => { 
             if (currentUser) {
-              setProfileId(currentUser.id); setView('profile'); 
+              navigate(`/profile/${currentUser.id}`);
             } else {
               setIsAuthModalOpen(true);
             }
           }} 
           userAvatar={currentUser?.avatar || ''}
           notifications={notifications}
-          onMarkRead={() => {}}
+          onMarkRead={handleMarkRead}
           onMobileMenuToggle={() => setIsMobileMenuOpen(true)}
           onSearch={setSearchTerm}
           currentUser={currentUser || undefined}
-          onAdminClick={() => setView('admin')}
+          onAdminClick={() => navigate('/admin')}
           selectedDivision={selectedDivision}
           selectedDistrict={selectedDistrict}
           onDivisionChange={setSelectedDivision}
@@ -380,124 +542,80 @@ const App: React.FC = () => {
         />
       )}
 
-      {view === 'admin' ? (
-        <AdminDashboard 
-          users={Object.values(users)} 
-          posts={posts} 
-          onUpdateUser={handleUpdateUser}
-          onDeleteUser={handleDeleteUser}
-          onDeletePost={handleDeletePost} 
-          onLogout={handleLogout} 
-          currentUser={currentUser!} 
-          onBack={() => setView('feed')}
-          settings={settings}
-          onUpdateSettings={handleUpdateSettings}
-        />
-      ) : view === 'profile' ? (
-        <UserProfile 
-          user={viewedUser || currentUser!} 
-          currentUser={currentUser!} 
-          isFollowing={false} 
-          onFollowToggle={() => {}} 
-          posts={posts} 
-          onBack={() => setView('feed')} 
-          onPostInteract={handleInteract} 
-          onUserClick={(id) => { setProfileId(id); setView('profile'); }} 
-          onUpdateProfile={handleUpdateProfile} 
-          onEditPost={handleEditPost}
-          onDeletePost={handleDeletePost}
-        />
-      ) : (
-        <main className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 py-3 sm:py-6">
-          <MobileSidebar 
-            isOpen={isMobileMenuOpen} 
-            onClose={() => setIsMobileMenuOpen(false)} 
-            currentUser={currentUser || { id: 'guest', name: 'Guest', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=guest', followers: 0, following: 0 }} 
-            onProfileClick={() => { 
-              if (currentUser) {
-                setProfileId(currentUser.id); setView('profile'); 
-              } else {
-                setIsAuthModalOpen(true);
-              }
-            }} 
-            onCategoryClick={() => {}} 
-            onTrendingClick={(term) => { setSearchTerm(term); setView('feed'); }} 
-            onAdminClick={() => setView('admin')} 
-            isDark={isDark}
-            onToggleTheme={toggleTheme}
-            onLoginClick={() => setIsAuthModalOpen(true)}
-            onLogout={handleLogout}
-            siteName={settings.siteName}
-          />
+      <Routes>
+        <Route path="/admin" element={
+            <AdminDashboard 
+              users={Object.values(users)} 
+              posts={posts} 
+              onUpdateUser={handleUpdateUser}
+              onDeleteUser={handleDeleteUser}
+              onDeletePost={handleDeletePost} 
+              onLogout={handleLogout} 
+              currentUser={currentUser!} 
+              onBack={() => navigate('/')}
+              settings={settings}
+              onUpdateSettings={handleUpdateSettings}
+            />
+        } />
+        
+        <Route path="/profile/:userId" element={<ProfileRouteWrapper />} />
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-6">
-            <div className="lg:col-span-8">
-              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 p-1 mb-4 flex gap-1 overflow-x-auto no-scrollbar">
-                {[ 'ALL', 'Issue', 'Petition', 'Poll' ].map(type => (
-                  <button key={type} onClick={() => setFilterType(type as any)} className={`flex-1 py-2 px-4 text-[10px] font-black uppercase rounded-lg transition-all whitespace-nowrap ${filterType === type ? 'bg-emerald-600 text-white' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
-                    {type}
-                  </button>
-                ))}
-              </div>
-
-              {searchTerm && (
-                <div className="bg-emerald-50 dark:bg-emerald-950/20 px-4 py-2 rounded-xl mb-4 flex items-center justify-between border border-emerald-100 dark:border-emerald-900/30">
-                  <div className="flex items-center gap-2">
-                    <Search className="w-4 h-4 text-emerald-600" />
-                    <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">Searching for: <span className="font-black">"{searchTerm}"</span></span>
-                  </div>
-                  <button onClick={() => setSearchTerm('')} className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 rounded-full text-emerald-600 transition">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-
-              <div className="hidden lg:block">
-                <CreatePost 
-                  onPostCreate={() => {}} 
-                  currentUser={currentUser || { name: 'Guest', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=guest', id: 'guest' }} 
-                  onLoginRequired={() => setIsAuthModalOpen(true)}
-                  settings={settings}
+        <Route path="/post/:id" element={
+            <main className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 py-3 sm:py-6">
+                <SinglePostView 
+                    currentUser={currentUser} 
+                    onInteract={handleInteract}
+                    onAddComment={handleAddComment}
+                    onUserClick={(id) => navigate(`/profile/${id}`)}
+                    onEditPost={handleEditPost}
+                    onDeletePost={handleDeletePost}
+                    users={users}
+                    onLoginRequired={() => setIsAuthModalOpen(true)}
                 />
-              </div>
+            </main>
+        } />
 
-              <div className="space-y-1">
-                {filteredPosts.length > 0 ? (
-                  filteredPosts.map(post => (
-                    <PostCard 
-                      key={post.id} 
-                      post={post} 
-                      currentUser={currentUser || { id: 'guest', name: 'Guest', avatar: '', followers: 0, following: 0 }}
-                      onInteract={handleInteract} 
-                      onAddComment={handleAddComment} 
-                      onUserClick={(id) => { setProfileId(id); setView('profile'); }} 
-                      onTagClick={(tag) => setSearchTerm(tag)}
-                      authorData={users[post.authorId]}
-                      onEdit={handleEditPost}
-                      onDelete={handleDeletePost}
-                    />
-                  ))
-                ) : (
-                  <div className="bg-white dark:bg-gray-900 rounded-2xl p-12 text-center border border-dashed border-gray-200 dark:border-gray-800">
-                    <Inbox className="w-12 h-12 text-gray-300 dark:text-gray-700 mx-auto mb-4" />
-                    <p className="text-sm font-bold text-gray-400 dark:text-gray-600 uppercase tracking-widest">No contributions found.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="lg:col-span-4 hidden lg:block">
-              <Sidebar 
-                onCategoryClick={() => {}} 
-                onTrendingClick={setSearchTerm} 
-                isDark={isDark} 
-                onToggleTheme={toggleTheme} 
-                siteSettings={settings}
-                posts={posts}
-              />
-            </div>
-          </div>
-        </main>
-      )}
+        <Route path="/" element={
+            <main className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 py-3 sm:py-6">
+                <MobileSidebar 
+                    isOpen={isMobileMenuOpen} 
+                    onClose={() => setIsMobileMenuOpen(false)} 
+                    currentUser={currentUser || { id: 'guest', name: 'Guest', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=guest', followers: 0, following: 0, joinedDate: Date.now() }} 
+                    onProfileClick={() => { 
+                        if (currentUser) {
+                            navigate(`/profile/${currentUser.id}`);
+                        } else {
+                            setIsAuthModalOpen(true);
+                        }
+                    }} 
+                    onCategoryClick={() => {}} 
+                    onTrendingClick={(term) => { setSearchTerm(term); navigate('/'); }} 
+                    onAdminClick={() => navigate('/admin')} 
+                    isDark={isDark}
+                    onToggleTheme={toggleTheme}
+                    onLoginClick={() => setIsAuthModalOpen(true)}
+                    onLogout={handleLogout}
+                    siteName={settings.siteName}
+                />
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-6">
+                    <div className="lg:col-span-8">
+                        <Feed />
+                    </div>
+                    <div className="lg:col-span-4 hidden lg:block">
+                        <Sidebar 
+                            onCategoryClick={() => {}} 
+                            onTrendingClick={(term) => { setSearchTerm(term); navigate('/'); }} 
+                            isDark={isDark} 
+                            onToggleTheme={toggleTheme} 
+                            siteSettings={settings}
+                            posts={posts}
+                        />
+                    </div>
+                </div>
+            </main>
+        } />
+      </Routes>
 
       {/* Auth Modal Overlay */}
       {isAuthModalOpen && (
@@ -516,17 +634,19 @@ const App: React.FC = () => {
       )}
 
       {/* Floating Action Button (FAB) for Mobile */}
-      <div className="lg:hidden fixed bottom-6 right-6 z-[40]">
-        <button 
-          onClick={() => {
-            if (currentUser) setIsCreateModalOpen(true);
-            else setIsAuthModalOpen(true);
-          }}
-          className="w-14 h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full flex items-center justify-center shadow-2xl active:scale-95 transition-all animate-in zoom-in-50 duration-300 border-4 border-white dark:border-gray-900"
-        >
-          <Plus className="w-8 h-8" />
-        </button>
-      </div>
+      {location.pathname === '/' && (
+        <div className="lg:hidden fixed bottom-6 right-6 z-[40]">
+            <button 
+            onClick={() => {
+                if (currentUser) setIsCreateModalOpen(true);
+                else setIsAuthModalOpen(true);
+            }}
+            className="w-14 h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full flex items-center justify-center shadow-2xl active:scale-95 transition-all animate-in zoom-in-50 duration-300 border-4 border-white dark:border-gray-900"
+            >
+            <Plus className="w-8 h-8" />
+            </button>
+        </div>
+      )}
 
       {/* Create Post Modal for Mobile */}
       {isCreateModalOpen && currentUser && (

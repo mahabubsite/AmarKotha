@@ -81,10 +81,11 @@ const PostCard: React.FC<PostCardProps> = ({
   };
 
   const handleShare = async () => {
+    const postUrl = `${window.location.origin}/post/${post.id}`;
     const shareData = {
       title: post.title,
-      text: `${post.title}\n\n${post.description}\n\nRead more on AmarKotha.`,
-      url: window.location.href // Ideally, this would be a specific post link
+      text: `${post.title}\n\n${post.description}\n\nRead full post on AmarKotha:`,
+      url: postUrl
     };
 
     if (navigator.share) {
@@ -95,8 +96,8 @@ const PostCard: React.FC<PostCardProps> = ({
       }
     } else {
       // Fallback to clipboard
-      navigator.clipboard.writeText(`${shareData.title}\n${shareData.text}`);
-      alert('Post content copied to clipboard!');
+      navigator.clipboard.writeText(`${shareData.text} ${postUrl}`);
+      alert('Post link copied to clipboard!');
     }
     setShowMenu(false);
   };
@@ -312,7 +313,7 @@ const PostCard: React.FC<PostCardProps> = ({
                   post.comments!.map(comment => (
                     <div key={comment.id} className="flex gap-3">
                       <img 
-                        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${comment.authorId}`} 
+                        src={comment.authorAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${comment.authorId}`} 
                         className="w-8 h-8 rounded-full shrink-0 border border-gray-100 object-cover" 
                         alt={comment.author} 
                       />

@@ -19,6 +19,7 @@ export interface Comment {
   id: string;
   author: string;
   authorId: string;
+  authorAvatar?: string;
   content: string;
   timestamp: number;
 }
@@ -99,6 +100,7 @@ export interface User {
   location?: string;
   followers: number;
   following: number;
+  followingIds?: string[]; // IDs of users this user follows
   role?: 'user' | 'admin';
   
   // Extended fields for Admin Panel

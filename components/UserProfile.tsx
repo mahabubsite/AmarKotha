@@ -7,7 +7,7 @@ import { formatToBanglaDate } from '../utils';
 
 interface UserProfileProps {
   user: User;
-  currentUser: User;
+  currentUser: User | null;
   isFollowing: boolean;
   onFollowToggle: (userId: string) => void;
   posts: Post[];
@@ -135,12 +135,14 @@ const UserProfile: React.FC<UserProfileProps> = ({
     return postUpvotes + solutionUpvotes;
   }, [userPosts, posts, user.id]);
 
-  const isMe = user.id === currentUser.id;
+  const isMe = currentUser && user.id === currentUser.id;
   const userAvatar = user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`;
 
   const handleSaveProfile = () => {
-    onUpdateProfile({ ...user, ...editForm });
-    setIsEditing(false);
+    if (user) {
+        onUpdateProfile({ ...user, ...editForm });
+        setIsEditing(false);
+    }
   };
 
   if (!user) {
@@ -182,7 +184,7 @@ const UserProfile: React.FC<UserProfileProps> = ({
                     <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tighter uppercase">{user.name}</h1>
                     {user.role === 'admin' && <Shield className="w-5 h-5 text-emerald-500 fill-emerald-500/10" />}
                   </div>
-                  <p className="text-[11px] font-black uppercase text-emerald-600 dark:text-emerald-400 tracking-widest">@{user.username || 'citizen'}</p>
+                  <p className="text-[10px] font-black uppercase text-emerald-600 dark:text-emerald-400 tracking-widest">@{user.username || 'citizen'}</p>
                   <p className="text-xs font-medium text-gray-500 dark:text-gray-400 max-w-md mt-2">{user.bio || 'Building a better Bangladesh through voice and action.'}</p>
                   <div className="flex flex-wrap items-center gap-4 mt-4 text-[9px] font-black text-gray-400 uppercase tracking-widest">
                     <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-emerald-500" /> {user.location || 'Bangladesh'}</span>
@@ -288,7 +290,7 @@ const UserProfile: React.FC<UserProfileProps> = ({
                 <PostCard 
                   key={post.id} 
                   post={post} 
-                  currentUser={currentUser} 
+                  currentUser={currentUser || { id: 'guest', name: 'Guest', avatar: '', followers: 0, following: 0, joinedDate: Date.now() }} 
                   onInteract={onPostInteract} 
                   onUserClick={onUserClick} 
                   onAddComment={() => {}} 
