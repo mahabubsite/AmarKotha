@@ -1,20 +1,47 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
-
-# Run and deploy your AI Studio app
-
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/drive/17TmP0rIew5IuEl0S_ehvdgq1cbv354xn
-
-## Run Locally
-
-**Prerequisites:**  Node.js
+<h1 align="center">AmarKotha</h1>
+<p align="center">
+A civic platform for Bangladesh — posts on national issues, community solutions, petitions, and polls.
+</p>
 
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+<p align="center">
+🌐 Live: https://amarkotha.vercel.app
+</p>
+
+
+---
+
+
+## What is AmarKotha?
+
+
+**AmarKotha** is a public-interest platform where people can:
+- 📌 Post about important national issues (Bangladesh focus)
+- 🧩 Share solutions and raise awareness
+- ✍️ Create and sign petitions
+- 📊 Run polls to understand public opinion
+
+
+Goal: **Make issues visible, gather voices, and push for real-world change.**
+
+
+---
+
+
+## Key Features (SEO keywords-friendly)
+- Issue-based posts and updates
+- Petition creation & support
+- Public polls (opinion + trend)
+- Community-driven solutions and discussion
+- Awareness content for citizens
+
+
+---
+
+
+## Links
+- Live site: https://amarkotha.vercel.app
+
+## Keywords
+
+AmarKotha, Bangladesh civic platform, petitions Bangladesh, public issues Bangladesh, citizen voice, polls Bangladesh, social awareness, community solutions
