@@ -132,7 +132,7 @@ const App: React.FC = () => {
             const userData = { id: fbUser.uid, ...docSnap.data() } as User;
             if (fbUser.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) userData.role = 'admin';
             setCurrentUser(userData);
-            setUsers(prev => ({ ...prev, [fbUser.uid]: userData }));
+            // setUsers update removed here as the global listener below handles it
           } else {
             const initialData: User = { 
               id: fbUser.uid, 
@@ -154,6 +154,22 @@ const App: React.FC = () => {
         setIsAuthLoading(false);
       }
     });
+    return unsubscribe;
+  }, []);
+
+  // Global Users Listener (Populates Admin Dashboard & Author Data)
+  useEffect(() => {
+    const q = collection(db, "users");
+    const unsubscribe = onSnapshot(q, 
+      (snapshot) => {
+        const fetchedUsers: Record<string, User> = {};
+        snapshot.docs.forEach((doc) => {
+          fetchedUsers[doc.id] = { id: doc.id, ...doc.data() } as User;
+        });
+        setUsers(fetchedUsers);
+      },
+      (error) => console.warn("Users listener error:", error.code)
+    );
     return unsubscribe;
   }, []);
 
